@@ -1,0 +1,66 @@
+#import "SPPermissionManager.h"
+#import <AVFoundation/AVFoundation.h>
+#import <ApplicationServices/ApplicationServices.h>
+
+@implementation SPPermissionManager
+
+- (void)checkAllPermissionsWithCompletion:(SPPermissionCheckCompletion)completion {
+    // Check microphone permission (async)
+    [self requestMicrophonePermissionWithCompletion:^(BOOL micGranted) {
+        BOOL accessibility = [self isAccessibilityGranted];
+        BOOL inputMonitoring = [self isInputMonitoringGranted];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(micGranted, accessibility, inputMonitoring);
+        });
+    }];
+}
+
+- (void)requestMicrophonePermissionWithCompletion:(void (^)(BOOL))completion {
+    AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    if (status == AVAuthorizationStatusAuthorized) {
+        completion(YES);
+    } else if (status == AVAuthorizationStatusNotDetermined) {
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+            completion(granted);
+        }];
+    } else {
+        NSLog(@"[Koe] Microphone permission denied or restricted");
+        completion(NO);
+    }
+}
+
+- (BOOL)isMicrophoneGranted {
+    return [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusAuthorized;
+}
+
+- (BOOL)isAccessibilityGranted {
+    // AXIsProcessTrustedWithOptions with prompt
+    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+    return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+}
+
+static CGEventRef inputMonitoringProbeCallback(CGEventTapProxy proxy,
+                                                CGEventType type,
+                                                CGEventRef event,
+                                                void *userInfo) {
+    return event;
+}
+
+- (BOOL)isInputMonitoringGranted {
+    // Probe by attempting to create a CGEventTap.
+    // Must provide a valid callback — NULL callback can return NULL even with permission.
+    CGEventMask mask = CGEventMaskBit(kCGEventFlagsChanged);
+    CFMachPortRef tap = CGEventTapCreate(kCGHIDEventTap,
+                                         kCGHeadInsertEventTap,
+                                         kCGEventTapOptionListenOnly,
+                                         mask,
+                                         inputMonitoringProbeCallback,
+                                         NULL);
+    if (tap) {
+        CFRelease(tap);
+        return YES;
+    }
+    return NO;
+}
+
+@end

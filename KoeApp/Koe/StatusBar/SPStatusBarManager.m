@@ -1,0 +1,330 @@
+#import "SPStatusBarManager.h"
+#import <Cocoa/Cocoa.h>
+#import <ServiceManagement/ServiceManagement.h>
+
+// Icon size for menu bar (points)
+static const CGFloat kIconSize = 18.0;
+
+@interface SPStatusBarManager ()
+
+@property (nonatomic, weak) id<SPStatusBarDelegate> delegate;
+@property (nonatomic, strong) NSStatusItem *statusItem;
+@property (nonatomic, strong) NSMenuItem *statusMenuItem;
+@property (nonatomic, strong) NSTimer *animationTimer;
+@property (nonatomic, assign) NSInteger animationFrame;
+@property (nonatomic, copy) NSString *currentState;
+
+@end
+
+@implementation SPStatusBarManager
+
+- (instancetype)initWithDelegate:(id<SPStatusBarDelegate>)delegate {
+    self = [super init];
+    if (self) {
+        _delegate = delegate;
+        _currentState = @"idle";
+        _animationFrame = 0;
+        [self setupStatusBar];
+    }
+    return self;
+}
+
+- (void)setupStatusBar {
+    self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
+
+    [self applyIdleIcon];
+
+    // Build menu
+    NSMenu *menu = [[NSMenu alloc] init];
+
+    // Status display
+    self.statusMenuItem = [[NSMenuItem alloc] initWithTitle:@"Ready"
+                                                    action:nil
+                                             keyEquivalent:@""];
+    self.statusMenuItem.enabled = NO;
+    [menu addItem:self.statusMenuItem];
+
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *openConfig = [[NSMenuItem alloc] initWithTitle:@"Open Config Folder..."
+                                                       action:@selector(openConfigFolder:)
+                                                keyEquivalent:@""];
+    openConfig.target = self;
+    [menu addItem:openConfig];
+
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *loginItem = [[NSMenuItem alloc] initWithTitle:@"Launch at Login"
+                                                      action:@selector(toggleLaunchAtLogin:)
+                                               keyEquivalent:@""];
+    loginItem.target = self;
+    if (@available(macOS 13.0, *)) {
+        loginItem.state = (SMAppService.mainAppService.status == SMAppServiceStatusEnabled)
+                          ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+    [menu addItem:loginItem];
+
+    [menu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit Koe"
+                                                 action:@selector(quitApp:)
+                                          keyEquivalent:@"q"];
+    quit.target = self;
+    [menu addItem:quit];
+
+    self.statusItem.menu = menu;
+}
+
+#pragma mark - Custom Icon Drawing
+
+/// Create a template image drawn with the given block. Template images auto-adapt to dark/light mode.
+- (NSImage *)templateImageWithDrawing:(void (^)(NSSize size))drawBlock {
+    NSSize size = NSMakeSize(kIconSize, kIconSize);
+    NSImage *image = [NSImage imageWithSize:size flipped:NO drawingHandler:^BOOL(NSRect rect) {
+        drawBlock(size);
+        return YES;
+    }];
+    image.template = YES;
+    return image;
+}
+
+/// Idle: three static waveform bars — a calm, minimal audio visualizer
+- (void)applyIdleIcon {
+    NSImage *icon = [self templateImageWithDrawing:^(NSSize size) {
+        CGFloat barWidth = 2.0;
+        CGFloat spacing = 3.5;
+        CGFloat centerX = size.width / 2.0;
+        CGFloat centerY = size.height / 2.0;
+
+        // Heights for 3 bars (short, tall, short) — symmetric, resting state
+        CGFloat heights[] = {5.0, 8.0, 5.0};
+        NSInteger barCount = 3;
+        CGFloat totalWidth = barCount * barWidth + (barCount - 1) * spacing;
+        CGFloat startX = centerX - totalWidth / 2.0;
+
+        [[NSColor blackColor] setFill];
+        for (NSInteger i = 0; i < barCount; i++) {
+            CGFloat x = startX + i * (barWidth + spacing);
+            CGFloat h = heights[i];
+            CGFloat y = centerY - h / 2.0;
+            NSBezierPath *bar = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(x, y, barWidth, h)
+                                                               xRadius:barWidth / 2.0
+                                                               yRadius:barWidth / 2.0];
+            [bar fill];
+        }
+    }];
+    self.statusItem.button.image = icon;
+}
+
+/// Recording: animated waveform bars with varying heights — voice activity
+- (void)applyRecordingIconWithFrame:(NSInteger)frame {
+    // 5 bars, heights shift each frame to create a wave animation
+    NSImage *icon = [self templateImageWithDrawing:^(NSSize size) {
+        CGFloat barWidth = 2.0;
+        CGFloat spacing = 2.5;
+        CGFloat centerX = size.width / 2.0;
+        CGFloat centerY = size.height / 2.0;
+        NSInteger barCount = 5;
+
+        CGFloat totalWidth = barCount * barWidth + (barCount - 1) * spacing;
+        CGFloat startX = centerX - totalWidth / 2.0;
+
+        [[NSColor blackColor] setFill];
+        for (NSInteger i = 0; i < barCount; i++) {
+            // Sine wave pattern that shifts with frame
+            double phase = (double)(i + frame) * 0.8;
+            CGFloat h = 4.0 + 9.0 * fabs(sin(phase));
+            CGFloat x = startX + i * (barWidth + spacing);
+            CGFloat y = centerY - h / 2.0;
+            NSBezierPath *bar = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(x, y, barWidth, h)
+                                                               xRadius:barWidth / 2.0
+                                                               yRadius:barWidth / 2.0];
+            [bar fill];
+        }
+    }];
+    self.statusItem.button.image = icon;
+}
+
+/// Processing: pulsing dot pattern (thinking/working)
+- (void)applyProcessingIconWithFrame:(NSInteger)frame {
+    NSImage *icon = [self templateImageWithDrawing:^(NSSize size) {
+        CGFloat centerY = size.height / 2.0;
+        CGFloat centerX = size.width / 2.0;
+        CGFloat dotSpacing = 5.0;
+        NSInteger dotCount = 3;
+        CGFloat totalWidth = (dotCount - 1) * dotSpacing;
+        CGFloat startX = centerX - totalWidth / 2.0;
+
+        for (NSInteger i = 0; i < dotCount; i++) {
+            // Cascade: each dot pulses in sequence
+            double phase = (double)(frame - i) * 0.7;
+            CGFloat radius = 1.5 + 1.5 * fmax(0, sin(phase));
+            CGFloat alpha = 0.4 + 0.6 * fmax(0, sin(phase));
+            CGFloat x = startX + i * dotSpacing;
+
+            [[NSColor colorWithWhite:0 alpha:alpha] setFill];
+            NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(x - radius, centerY - radius, radius * 2, radius * 2)];
+            [dot fill];
+        }
+    }];
+    self.statusItem.button.image = icon;
+}
+
+/// Error: X mark
+- (void)applyErrorIcon {
+    NSImage *icon = [self templateImageWithDrawing:^(NSSize size) {
+        CGFloat centerX = size.width / 2.0;
+        CGFloat centerY = size.height / 2.0;
+        CGFloat arm = 4.0;
+
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        path.lineWidth = 2.0;
+        path.lineCapStyle = NSLineCapStyleRound;
+
+        [path moveToPoint:NSMakePoint(centerX - arm, centerY - arm)];
+        [path lineToPoint:NSMakePoint(centerX + arm, centerY + arm)];
+        [path moveToPoint:NSMakePoint(centerX + arm, centerY - arm)];
+        [path lineToPoint:NSMakePoint(centerX - arm, centerY + arm)];
+
+        [[NSColor blackColor] setStroke];
+        [path stroke];
+    }];
+    self.statusItem.button.image = icon;
+}
+
+/// Pasting: checkmark
+- (void)applyPasteIcon {
+    NSImage *icon = [self templateImageWithDrawing:^(NSSize size) {
+        CGFloat centerX = size.width / 2.0;
+        CGFloat centerY = size.height / 2.0;
+
+        NSBezierPath *path = [NSBezierPath bezierPath];
+        path.lineWidth = 2.0;
+        path.lineCapStyle = NSLineCapStyleRound;
+        path.lineJoinStyle = NSLineJoinStyleRound;
+
+        // Checkmark
+        [path moveToPoint:NSMakePoint(centerX - 4, centerY)];
+        [path lineToPoint:NSMakePoint(centerX - 1, centerY - 3.5)];
+        [path lineToPoint:NSMakePoint(centerX + 5, centerY + 4)];
+
+        [[NSColor blackColor] setStroke];
+        [path stroke];
+    }];
+    self.statusItem.button.image = icon;
+}
+
+#pragma mark - State Updates
+
+- (void)updateState:(NSString *)state {
+    self.currentState = state;
+    [self stopAnimation];
+
+    if ([state isEqualToString:@"idle"] || [state isEqualToString:@"completed"]) {
+        self.statusMenuItem.title = @"Ready";
+        [self applyIdleIcon];
+
+    } else if ([state hasPrefix:@"recording"]) {
+        self.statusMenuItem.title = @"Listening...";
+        [self startRecordingAnimation];
+
+    } else if ([state isEqualToString:@"connecting_asr"]) {
+        self.statusMenuItem.title = @"Connecting...";
+        [self startProcessingAnimation];
+
+    } else if ([state isEqualToString:@"finalizing_asr"]) {
+        self.statusMenuItem.title = @"Recognizing...";
+        [self startProcessingAnimation];
+
+    } else if ([state isEqualToString:@"correcting"]) {
+        self.statusMenuItem.title = @"Correcting...";
+        [self startProcessingAnimation];
+
+    } else if ([state hasPrefix:@"preparing_paste"] || [state isEqualToString:@"pasting"]) {
+        self.statusMenuItem.title = @"Pasting...";
+        [self applyPasteIcon];
+
+    } else if ([state isEqualToString:@"error"] || [state isEqualToString:@"failed"]) {
+        self.statusMenuItem.title = @"Error";
+        [self applyErrorIcon];
+
+    } else {
+        self.statusMenuItem.title = @"Working...";
+        [self startProcessingAnimation];
+    }
+}
+
+#pragma mark - Animations
+
+- (void)startRecordingAnimation {
+    self.animationFrame = 0;
+    [self applyRecordingIconWithFrame:0];
+    self.animationTimer = [NSTimer scheduledTimerWithTimeInterval:0.15
+                                                         repeats:YES
+                                                           block:^(NSTimer *timer) {
+        self.animationFrame++;
+        [self applyRecordingIconWithFrame:self.animationFrame];
+    }];
+}
+
+- (void)startProcessingAnimation {
+    self.animationFrame = 0;
+    [self applyProcessingIconWithFrame:0];
+    self.animationTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
+                                                         repeats:YES
+                                                           block:^(NSTimer *timer) {
+        self.animationFrame++;
+        [self applyProcessingIconWithFrame:self.animationFrame];
+    }];
+}
+
+- (void)stopAnimation {
+    [self.animationTimer invalidate];
+    self.animationTimer = nil;
+    self.animationFrame = 0;
+}
+
+#pragma mark - Actions
+
+- (void)openConfigFolder:(id)sender {
+    NSString *path = [NSString stringWithFormat:@"%@/.koe", NSHomeDirectory()];
+    [[NSFileManager defaultManager] createDirectoryAtPath:path
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:path]];
+}
+
+- (void)reloadConfig:(id)sender {
+    if ([self.delegate respondsToSelector:@selector(statusBarDidSelectReloadConfig)]) {
+        [self.delegate statusBarDidSelectReloadConfig];
+    }
+}
+
+- (void)toggleLaunchAtLogin:(NSMenuItem *)sender {
+    if (@available(macOS 13.0, *)) {
+        SMAppService *service = SMAppService.mainAppService;
+        NSError *error = nil;
+        if (service.status == SMAppServiceStatusEnabled) {
+            [service unregisterAndReturnError:&error];
+            sender.state = NSControlStateValueOff;
+        } else {
+            [service registerAndReturnError:&error];
+            sender.state = NSControlStateValueOn;
+        }
+        if (error) {
+            NSLog(@"[Koe] Launch at login toggle failed: %@", error.localizedDescription);
+        }
+    }
+}
+
+- (void)quitApp:(id)sender {
+    [NSApp terminate:nil];
+}
+
+- (void)dealloc {
+    [self stopAnimation];
+}
+
+@end

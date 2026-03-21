@@ -1,0 +1,55 @@
+name: Koe
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "16.0"
+  defaultConfig: Release
+
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.koe.app
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  Koe:
+    type: application
+    platform: macOS
+    sources:
+      - path: Koe
+        excludes:
+          - "*.entitlements"
+    settings:
+      base:
+        INFOPLIST_FILE: Koe/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Koe/Koe.entitlements
+        PRODUCT_NAME: Koe
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/../koe-core/target"
+        LIBRARY_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/../target/aarch64-apple-darwin/release"
+          - "$(SRCROOT)/../target/release"
+        OTHER_LDFLAGS:
+          - "-lkoe_core"
+          - "-lSystem"
+          - "-lresolv"
+          - "-framework Security"
+          - "-framework CoreFoundation"
+        ENABLE_APP_SANDBOX: NO
+        CLANG_ENABLE_OBJC_ARC: YES
+    dependencies: []
+    preBuildScripts:
+      - name: Build Rust Library
+        script: |
+          cd "${SRCROOT}/.."
+          cargo build --manifest-path koe-core/Cargo.toml --release --target aarch64-apple-darwin
+        basedOnDependencyAnalysis: false
+    frameworks:
+      - AVFoundation
+      - AppKit
+      - ApplicationServices
+      - Carbon
+      - AudioToolbox
+      - ServiceManagement
