@@ -275,7 +275,7 @@ typedef NS_ENUM(NSInteger, SPOverlayMode) {
         accent = [NSColor colorWithRed:0.35 green:0.78 blue:1.0 alpha:1.0];
         mode   = SPOverlayModeProcessing;
     } else if ([state isEqualToString:@"correcting"]) {
-        text   = @"Correcting…";
+        text   = @"Thinking…";
         accent = [NSColor colorWithRed:0.55 green:0.6 blue:1.0 alpha:1.0];
         mode   = SPOverlayModeProcessing;
     } else if ([state hasPrefix:@"preparing_paste"] || [state isEqualToString:@"pasting"]) {

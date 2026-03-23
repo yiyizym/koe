@@ -382,7 +382,7 @@ static const CGFloat kIconSize = 18.0;
         [self startProcessingAnimation];
 
     } else if ([state isEqualToString:@"correcting"]) {
-        self.statusMenuItem.title = @"Correcting...";
+        self.statusMenuItem.title = @"Thinking...";
         [self startProcessingAnimation];
 
     } else if ([state hasPrefix:@"preparing_paste"] || [state isEqualToString:@"pasting"]) {
