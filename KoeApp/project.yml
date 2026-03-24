@@ -33,11 +33,14 @@ targets:
           - "$(SRCROOT)/../target/release"
         OTHER_LDFLAGS:
           - "-lkoe_core"
+          - "-lc++"
           - "-lSystem"
           - "-lresolv"
           - "-framework Security"
           - "-framework CoreFoundation"
           - "-framework UserNotifications"
+          - "-framework Accelerate"
+          - "-framework Foundation"
         ENABLE_APP_SANDBOX: NO
         CLANG_ENABLE_OBJC_ARC: YES
     dependencies: []

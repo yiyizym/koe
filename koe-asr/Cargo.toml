@@ -2,10 +2,13 @@
 name = "koe-asr"
 version = "0.1.0"
 edition = "2021"
-description = "Streaming ASR (Automatic Speech Recognition) client using FunASR"
+description = "Streaming ASR (Automatic Speech Recognition) with multiple provider support"
 license = "MIT"
 
 [dependencies]
+# sherpa-onnx (local, offline)
+sherpa-onnx = "1.12"
+# FunASR (WebSocket, server-based)
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", features = ["ring"], default-features = false }

@@ -26,15 +26,22 @@ Koe takes a different approach:
 ## How It Works
 
 1. Press and hold the trigger key (default: **Fn**, configurable) — Koe starts listening
-2. Audio streams in real-time to a cloud ASR service (Doubao/豆包 by ByteDance)
+2. Audio streams in real-time to a local ASR engine for speech recognition
 3. The ASR transcript is corrected by an LLM (any OpenAI-compatible API) — fixing capitalization, punctuation, spacing, and terminology
 4. The corrected text is automatically pasted into the active input field
 
-Current provider support is intentionally narrow:
+### ASR Providers
 
-- **ASR**: currently supports **Doubao ASR only**
-- **LLM**: currently supports **OpenAI-compatible APIs only**
-- **Planned**: future ASR support may include the **OpenAI Transcriptions API**
+Koe supports two ASR backends, selectable via `~/.koe/config.yaml`:
+
+| Provider | Mode | Requires | Best for |
+|---|---|---|---|
+| **sherpa-onnx** (default) | Local, offline | Model files (~230 MB) | Portable, no dependencies |
+| **FunASR** | Local server, 2pass | Docker | Higher accuracy (streaming + offline correction) |
+
+Both run entirely locally — no cloud API keys needed for ASR.
+
+- **LLM**: supports **OpenAI-compatible APIs only** (optional, for text correction)
 
 ## Installation
 
@@ -121,50 +128,51 @@ Below is the full configuration with explanations for every field.
 
 #### ASR (Speech Recognition)
 
-Koe currently supports **Doubao (豆包) ASR 2.0 only** for streaming speech recognition.
-Support for additional ASR providers is not available yet. We may add support for
-the **OpenAI Transcriptions API** in the future.
+Koe supports two local ASR providers. Set `provider` to choose:
 
 ```yaml
 asr:
-  # WebSocket endpoint. Default uses ASR 2.0 optimized bidirectional streaming.
-  # Do not change unless you know what you're doing.
-  url: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-
-  # Volcengine credentials — get these from the 火山引擎 console.
-  # Go to: https://console.volcengine.com/speech/app → create an app → copy App ID and Access Token.
-  app_key: ""          # X-Api-App-Key (火山引擎 App ID)
-  access_key: ""       # X-Api-Access-Key (火山引擎 Access Token)
-
-  # Resource ID for billing. Default is the standard duration-based billing plan.
-  resource_id: "volc.seedasr.sauc.duration"
-
-  # Connection timeout in milliseconds. Increase if you have slow network.
-  connect_timeout_ms: 3000
-
-  # How long to wait for the final ASR result after you stop speaking (ms).
-  # If ASR doesn't return a final result within this time, the best available result is used.
+  # "sherpa" (local, offline) or "funasr" (local server, 2pass)
+  provider: "sherpa"
   final_wait_timeout_ms: 5000
-
-  # Disfluency removal (语义顺滑). Removes spoken repetitions and filler words like 嗯, 那个.
-  # Recommended: true. Set to false if you want raw transcription.
-  enable_ddc: true
-
-  # Inverse text normalization (文本规范化). Converts spoken numbers, dates, etc.
-  # e.g., "二零二四年" → "2024年", "百分之五十" → "50%"
-  # Recommended: true.
-  enable_itn: true
-
-  # Automatic punctuation. Inserts commas, periods, question marks, etc.
-  # Recommended: true.
-  enable_punc: true
-
-  # Two-pass recognition (二遍识别). First pass gives fast streaming results,
-  # second pass re-recognizes with higher accuracy. Slight latency increase (~200ms)
-  # but significantly better accuracy, especially for technical terms.
-  # Recommended: true.
-  enable_nonstream: true
 ```
+
+**sherpa-onnx** (default) — runs entirely offline, no server needed:
+
+```bash
+# Download the bilingual model (~230 MB, one-time):
+mkdir -p ~/.koe/models
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2 | tar xj -C ~/.koe/models/
+```
+
+```yaml
+asr:
+  provider: "sherpa"
+  model_dir: "models/sherpa-onnx-streaming-paraformer-bilingual-zh-en"  # relative to ~/.koe/
+  hotwords_score: 1.5   # boosting score for dictionary hotwords (transducer models only)
+  num_threads: 2        # inference threads
+```
+
+**FunASR** — higher accuracy with 2pass mode (streaming + offline correction), requires Docker:
+
+```bash
+# Start the FunASR server (or use `make funasr`):
+docker run -p 10096:10095 -it --privileged=true \
+  -v ~/funasr-models:/workspace/models \
+  registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13 \
+  bash -c "cd /workspace/FunASR/runtime && bash run_server_2pass.sh --download-model-dir /workspace/models --certfile 0"
+```
+
+```yaml
+asr:
+  provider: "funasr"
+  url: "ws://localhost:10096"
+  mode: "2pass"              # "2pass" (recommended), "online", or "offline"
+  chunk_size: [5, 10, 5]     # [lookback, chunk, lookahead] in 60ms units
+  enable_itn: true           # inverse text normalization
+```
+
+Switch between providers by changing `provider` in `~/.koe/config.yaml` — takes effect on the next hotkey press, no restart needed.
 
 #### LLM (Text Correction)
 
@@ -366,7 +374,7 @@ This is especially useful for first-time users who want a guided, interactive se
 Koe is built as a native macOS app with two layers:
 
 - **Objective-C shell** — handles macOS integration: hotkey detection, audio capture, clipboard management, paste simulation, menu bar UI, and usage statistics (SQLite)
-- **Rust core library** — handles all network operations: ASR 2.0 WebSocket streaming with two-pass recognition, LLM API calls, config management, transcript aggregation, and session orchestration
+- **Rust core library** — handles ASR (sherpa-onnx local inference or FunASR WebSocket streaming), LLM API calls, config management, transcript aggregation, and session orchestration
 
 The two layers communicate via C FFI (Foreign Function Interface). The Rust core is compiled as a static library (`libkoe_core.a`) and linked into the Xcode project.
 
@@ -391,9 +399,9 @@ The two layers communicate via C FFI (Foreign Function Interface). The Rust core
 ┌───────────────────▼──────────────────────────────┐
 │  Rust Core (libkoe_core.a)                       │
 │  ┌──────────────┐ ┌────────┐ ┌────────────────┐  │
-│  │ ASR 2.0      │ │ LLM    │ │ Config + Dict  │  │
-│  │ (WebSocket)  │ │ (HTTP) │ │ + Prompts      │  │
-│  │ Two-pass     │ │        │ │                │  │
+│  │ ASR          │ │ LLM    │ │ Config + Dict  │  │
+│  │ (sherpa-onnx │ │ (HTTP) │ │ + Prompts      │  │
+│  │  or FunASR)  │ │        │ │                │  │
 │  └──────┬───────┘ └───▲────┘ └────────────────┘  │
 │         │             │                          │
 │  ┌──────▼─────────────┴──────────────────────┐   │
@@ -405,9 +413,9 @@ The two layers communicate via C FFI (Foreign Function Interface). The Rust core
 
 ### ASR Pipeline
 
-1. Audio streams to Doubao ASR 2.0 via WebSocket (binary protocol with gzip compression)
-2. First-pass streaming results arrive in real-time (`Interim` events)
-3. Second-pass re-recognition confirms segments with higher accuracy (`Definite` events)
+1. Audio streams to the selected ASR provider (sherpa-onnx local inference or FunASR WebSocket)
+2. Streaming results arrive in real-time (`Interim` events)
+3. Completed utterance segments are confirmed (`Definite` events)
 4. `TranscriptAggregator` merges all results and tracks interim revision history
 5. Final transcript + interim history + dictionary are sent to the LLM for correction
 

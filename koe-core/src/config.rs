@@ -19,18 +19,31 @@ pub struct Config {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AsrSection {
-    #[serde(default = "default_asr_url")]
+    /// ASR provider: "sherpa" (local) or "funasr" (server)
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    #[serde(default = "default_final_wait_timeout")]
+    pub final_wait_timeout_ms: u64,
+
+    // ── sherpa-onnx ──
+    #[serde(default = "default_model_dir")]
+    pub model_dir: String,
+    #[serde(default = "default_hotwords_score")]
+    pub hotwords_score: f32,
+    #[serde(default = "default_num_threads")]
+    pub num_threads: i32,
+
+    // ── FunASR ──
+    #[serde(default = "default_funasr_url")]
     pub url: String,
     #[serde(default = "default_connect_timeout")]
     pub connect_timeout_ms: u64,
-    #[serde(default = "default_final_wait_timeout")]
-    pub final_wait_timeout_ms: u64,
-    #[serde(default = "default_true")]
-    pub enable_itn: bool,
-    #[serde(default = "default_asr_mode")]
+    #[serde(default = "default_funasr_mode")]
     pub mode: String,
     #[serde(default = "default_chunk_size")]
     pub chunk_size: Vec<u32>,
+    #[serde(default = "default_true")]
+    pub enable_itn: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -131,16 +144,28 @@ impl HotkeySection {
 
 // ─── Defaults ───────────────────────────────────────────────────────
 
-fn default_asr_url() -> String {
+fn default_provider() -> String {
+    "sherpa".into()
+}
+fn default_model_dir() -> String {
+    "models/sherpa-onnx-streaming-paraformer-bilingual-zh-en".into()
+}
+fn default_final_wait_timeout() -> u64 {
+    5000
+}
+fn default_hotwords_score() -> f32 {
+    1.5
+}
+fn default_num_threads() -> i32 {
+    2
+}
+fn default_funasr_url() -> String {
     "ws://localhost:10096".into()
 }
 fn default_connect_timeout() -> u64 {
     3000
 }
-fn default_final_wait_timeout() -> u64 {
-    5000
-}
-fn default_asr_mode() -> String {
+fn default_funasr_mode() -> String {
     "2pass".into()
 }
 fn default_chunk_size() -> Vec<u32> {
@@ -330,15 +355,22 @@ const DEFAULT_CONFIG_YAML: &str = r#"# Koe - Voice Input Tool Configuration
 # ~/.koe/config.yaml
 
 asr:
-  # FunASR local streaming ASR server
-  # Start the server first: docker run -p 10096:10095 -it \
-  #   registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13
-  url: "ws://localhost:10096"
-  mode: "2pass"              # "2pass" (recommended), "online", or "offline"
-  chunk_size: [5, 10, 5]     # [lookback, chunk, lookahead] in 60ms units
-  connect_timeout_ms: 3000
+  # Provider: "sherpa" (local, offline) or "funasr" (server, 2pass)
+  provider: "sherpa"
   final_wait_timeout_ms: 5000
-  enable_itn: true           # inverse text normalization (numbers, dates, etc.)
+
+  # ── sherpa-onnx settings (provider: "sherpa") ──
+  # Download model: curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2 | tar xj -C ~/.koe/models/
+  model_dir: "models/sherpa-onnx-streaming-paraformer-bilingual-zh-en"  # relative to ~/.koe/
+  hotwords_score: 1.5
+  num_threads: 2
+
+  # ── FunASR settings (provider: "funasr") ──
+  # Start server: docker run -p 10096:10095 -it registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13 bash -c "cd /workspace/FunASR/runtime && bash run_server_2pass.sh --download-model-dir /workspace/models --certfile 0"
+  url: "ws://localhost:10096"
+  mode: "2pass"
+  chunk_size: [5, 10, 5]
+  enable_itn: true
 
 llm:
   enabled: true        # set to false to skip LLM correction entirely

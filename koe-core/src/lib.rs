@@ -17,7 +17,7 @@ use crate::ffi::{
 use crate::llm::openai_compatible::OpenAiCompatibleProvider;
 use crate::llm::{CorrectionRequest, LlmProvider};
 use crate::session::{Session, SessionState};
-use koe_asr::{AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, TranscriptAggregator};
+use koe_asr::{AnyProvider, AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, SherpaProvider, TranscriptAggregator};
 
 use std::ffi::c_char;
 use std::sync::{Arc, Mutex};
@@ -206,16 +206,31 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
 
     // Capture config for the async task
     let cfg = &core.config;
+    // Resolve model_dir relative to ~/.koe/
+    let model_dir = {
+        let p = std::path::Path::new(&cfg.asr.model_dir);
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            config::config_dir().join(p)
+        }
+    };
     let asr_config = AsrConfig {
-        url: cfg.asr.url.clone(),
         sample_rate_hz: 16000,
-        connect_timeout_ms: cfg.asr.connect_timeout_ms,
         final_wait_timeout_ms: cfg.asr.final_wait_timeout_ms,
-        enable_itn: cfg.asr.enable_itn,
         hotwords: core.dictionary.clone(),
+        // sherpa-onnx
+        model_dir: model_dir.to_string_lossy().to_string(),
+        hotwords_score: cfg.asr.hotwords_score,
+        num_threads: cfg.asr.num_threads,
+        // FunASR
+        url: cfg.asr.url.clone(),
+        connect_timeout_ms: cfg.asr.connect_timeout_ms,
         mode: cfg.asr.mode.clone(),
         chunk_size: cfg.asr.chunk_size.clone(),
+        enable_itn: cfg.asr.enable_itn,
     };
+    let asr_provider = cfg.asr.provider.clone();
     let llm_config = cfg.llm.clone();
     let dictionary = core.dictionary.clone();
     let dictionary_max_candidates = cfg.llm.dictionary_max_candidates;
@@ -230,6 +245,7 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
             mode,
             audio_rx,
             asr_config,
+            asr_provider,
             llm_config,
             dictionary,
             dictionary_max_candidates,
@@ -329,6 +345,7 @@ async fn run_session(
     mode: SPSessionMode,
     mut audio_rx: mpsc::Receiver<Vec<u8>>,
     asr_config: AsrConfig,
+    asr_provider: String,
     llm_config: config::LlmSection,
     dictionary: Vec<String>,
     dictionary_max_candidates: usize,
@@ -339,7 +356,16 @@ async fn run_session(
 
     // --- Connect ASR ---
     invoke_state_changed("connecting_asr");
-    let mut asr = FunAsrProvider::new();
+    let mut asr = match asr_provider.as_str() {
+        "funasr" => {
+            log::info!("[{session_id}] using FunASR provider");
+            AnyProvider::FunAsr(FunAsrProvider::new())
+        }
+        _ => {
+            log::info!("[{session_id}] using sherpa-onnx provider");
+            AnyProvider::Sherpa(SherpaProvider::new())
+        }
+    };
     if let Err(e) = asr.connect(&asr_config).await {
         log::error!("[{session_id}] ASR connection failed: {e}");
         invoke_session_error(&e.to_string());
@@ -559,7 +585,7 @@ async fn run_session(
 }
 
 async fn wait_for_final(
-    asr: &mut FunAsrProvider,
+    asr: &mut AnyProvider,
     aggregator: &mut TranscriptAggregator,
 ) {
     loop {
