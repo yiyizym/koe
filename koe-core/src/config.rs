@@ -21,24 +21,16 @@ pub struct Config {
 pub struct AsrSection {
     #[serde(default = "default_asr_url")]
     pub url: String,
-    #[serde(default)]
-    pub app_key: String,
-    #[serde(default)]
-    pub access_key: String,
-    #[serde(default = "default_resource_id")]
-    pub resource_id: String,
     #[serde(default = "default_connect_timeout")]
     pub connect_timeout_ms: u64,
     #[serde(default = "default_final_wait_timeout")]
     pub final_wait_timeout_ms: u64,
     #[serde(default = "default_true")]
-    pub enable_ddc: bool,
-    #[serde(default = "default_true")]
     pub enable_itn: bool,
-    #[serde(default = "default_true")]
-    pub enable_punc: bool,
-    #[serde(default = "default_true")]
-    pub enable_nonstream: bool,
+    #[serde(default = "default_asr_mode")]
+    pub mode: String,
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size: Vec<u32>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -140,16 +132,19 @@ impl HotkeySection {
 // ─── Defaults ───────────────────────────────────────────────────────
 
 fn default_asr_url() -> String {
-    "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into()
-}
-fn default_resource_id() -> String {
-    "volc.seedasr.sauc.duration".into()
+    "ws://localhost:10096".into()
 }
 fn default_connect_timeout() -> u64 {
     3000
 }
 fn default_final_wait_timeout() -> u64 {
     5000
+}
+fn default_asr_mode() -> String {
+    "2pass".into()
+}
+fn default_chunk_size() -> Vec<u32> {
+    vec![5, 10, 5]
 }
 fn default_true() -> bool {
     true
@@ -335,17 +330,15 @@ const DEFAULT_CONFIG_YAML: &str = r#"# Koe - Voice Input Tool Configuration
 # ~/.koe/config.yaml
 
 asr:
-  # Doubao (豆包) Streaming ASR 2.0 (优化版双向流式)
-  url: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-  app_key: ""          # X-Api-App-Key (火山引擎 App ID)
-  access_key: ""       # X-Api-Access-Key (火山引擎 Access Token)
-  resource_id: "volc.seedasr.sauc.duration"
+  # FunASR local streaming ASR server
+  # Start the server first: docker run -p 10096:10095 -it \
+  #   registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13
+  url: "ws://localhost:10096"
+  mode: "2pass"              # "2pass" (recommended), "online", or "offline"
+  chunk_size: [5, 10, 5]     # [lookback, chunk, lookahead] in 60ms units
   connect_timeout_ms: 3000
   final_wait_timeout_ms: 5000
-  enable_ddc: true     # 语义顺滑 (去除口语重复/语气词)
-  enable_itn: true     # 文本规范化 (数字、日期等)
-  enable_punc: true    # 自动标点
-  enable_nonstream: true  # 二遍识别 (流式+非流式, 提升准确率)
+  enable_itn: true           # inverse text normalization (numbers, dates, etc.)
 
 llm:
   enabled: true        # set to false to skip LLM correction entirely

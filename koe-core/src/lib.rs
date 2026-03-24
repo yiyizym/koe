@@ -17,7 +17,7 @@ use crate::ffi::{
 use crate::llm::openai_compatible::OpenAiCompatibleProvider;
 use crate::llm::{CorrectionRequest, LlmProvider};
 use crate::session::{Session, SessionState};
-use koe_asr::{AsrConfig, AsrEvent, AsrProvider, DoubaoWsProvider, TranscriptAggregator};
+use koe_asr::{AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, TranscriptAggregator};
 
 use std::ffi::c_char;
 use std::sync::{Arc, Mutex};
@@ -208,17 +208,13 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
     let cfg = &core.config;
     let asr_config = AsrConfig {
         url: cfg.asr.url.clone(),
-        app_key: cfg.asr.app_key.clone(),
-        access_key: cfg.asr.access_key.clone(),
-        resource_id: cfg.asr.resource_id.clone(),
         sample_rate_hz: 16000,
         connect_timeout_ms: cfg.asr.connect_timeout_ms,
         final_wait_timeout_ms: cfg.asr.final_wait_timeout_ms,
-        enable_ddc: cfg.asr.enable_ddc,
         enable_itn: cfg.asr.enable_itn,
-        enable_punc: cfg.asr.enable_punc,
-        enable_nonstream: cfg.asr.enable_nonstream,
         hotwords: core.dictionary.clone(),
+        mode: cfg.asr.mode.clone(),
+        chunk_size: cfg.asr.chunk_size.clone(),
     };
     let llm_config = cfg.llm.clone();
     let dictionary = core.dictionary.clone();
@@ -343,7 +339,7 @@ async fn run_session(
 
     // --- Connect ASR ---
     invoke_state_changed("connecting_asr");
-    let mut asr = DoubaoWsProvider::new();
+    let mut asr = FunAsrProvider::new();
     if let Err(e) = asr.connect(&asr_config).await {
         log::error!("[{session_id}] ASR connection failed: {e}");
         invoke_session_error(&e.to_string());
@@ -563,7 +559,7 @@ async fn run_session(
 }
 
 async fn wait_for_final(
-    asr: &mut DoubaoWsProvider,
+    asr: &mut FunAsrProvider,
     aggregator: &mut TranscriptAggregator,
 ) {
     loop {

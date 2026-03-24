@@ -1,35 +1,33 @@
-use koe_asr::{AsrConfig, AsrEvent, AsrProvider, DoubaoWsProvider, TranscriptAggregator};
+use koe_asr::{AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, TranscriptAggregator};
 
 #[test]
 fn test_default_config() {
     let config = AsrConfig::default();
     assert_eq!(config.sample_rate_hz, 16000);
-    assert!(config.enable_ddc);
+    assert_eq!(config.url, "ws://localhost:10096");
+    assert_eq!(config.mode, "2pass");
+    assert_eq!(config.chunk_size, vec![5, 10, 5]);
     assert!(config.enable_itn);
-    assert!(config.enable_punc);
-    assert!(config.enable_nonstream);
     assert!(config.hotwords.is_empty());
-    assert!(!config.url.is_empty());
-    assert!(!config.resource_id.is_empty());
 }
 
 #[test]
 fn test_custom_config() {
     let config = AsrConfig {
-        app_key: "test-key".into(),
-        access_key: "test-access".into(),
+        url: "ws://localhost:9090".into(),
         hotwords: vec!["Rust".into(), "Tokio".into()],
+        mode: "online".into(),
         ..Default::default()
     };
-    assert_eq!(config.app_key, "test-key");
+    assert_eq!(config.url, "ws://localhost:9090");
     assert_eq!(config.hotwords.len(), 2);
+    assert_eq!(config.mode, "online");
 }
 
 #[test]
 fn test_provider_creation() {
-    let provider = DoubaoWsProvider::new();
-    assert!(!provider.connect_id().is_empty());
-    assert!(provider.logid().is_none());
+    let _provider = FunAsrProvider::new();
+    // Provider should be constructable without panicking
 }
 
 #[test]
@@ -103,17 +101,26 @@ fn test_asr_event_variants() {
     assert_eq!(events.len(), 6);
 }
 
+/// Integration test: requires a running FunASR server at ws://localhost:10096.
+/// Run with: cargo test --test api_test test_funasr_connect -- --ignored
 #[tokio::test]
-async fn test_connect_fails_with_invalid_credentials() {
+#[ignore]
+async fn test_funasr_connect() {
+    let config = AsrConfig::default();
+    let mut provider = FunAsrProvider::new();
+    let result = provider.connect(&config).await;
+    assert!(result.is_ok(), "failed to connect: {:?}", result.err());
+    let _ = provider.close().await;
+}
+
+#[tokio::test]
+async fn test_funasr_connect_fails_without_server() {
     let config = AsrConfig {
-        app_key: "invalid".into(),
-        access_key: "invalid".into(),
-        connect_timeout_ms: 2000,
+        url: "ws://localhost:19999".into(), // unlikely to have a server here
+        connect_timeout_ms: 1000,
         ..Default::default()
     };
-
-    let mut provider = DoubaoWsProvider::new();
+    let mut provider = FunAsrProvider::new();
     let result = provider.connect(&config).await;
-    // Should fail since credentials are invalid
     assert!(result.is_err());
 }

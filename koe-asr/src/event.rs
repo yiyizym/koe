@@ -5,8 +5,8 @@ pub enum AsrEvent {
     Connected,
     /// Interim (partial) recognition result — may change as more audio arrives.
     Interim(String),
-    /// A confirmed sentence from two-pass recognition (definite=true).
-    /// Higher accuracy than Interim when `enable_nonstream` is on.
+    /// A confirmed sentence from two-pass recognition.
+    /// Higher accuracy than Interim when using "2pass" mode.
     Definite(String),
     /// Final recognition result for the entire session.
     Final(String),

@@ -1,20 +1,16 @@
 //! # koe-asr
 //!
-//! Streaming ASR (Automatic Speech Recognition) client for Volcengine/Doubao.
+//! Streaming ASR (Automatic Speech Recognition) client using FunASR.
 //!
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use koe_asr::{AsrConfig, AsrEvent, AsrProvider, DoubaoWsProvider, TranscriptAggregator};
+//! use koe_asr::{AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, TranscriptAggregator};
 //!
 //! # async fn example() -> Result<(), koe_asr::AsrError> {
-//! let config = AsrConfig {
-//!     app_key: "your-app-key".into(),
-//!     access_key: "your-access-key".into(),
-//!     ..Default::default()
-//! };
+//! let config = AsrConfig::default(); // connects to ws://localhost:10096
 //!
-//! let mut asr = DoubaoWsProvider::new();
+//! let mut asr = FunAsrProvider::new();
 //! asr.connect(&config).await?;
 //!
 //! // Push audio frames...
@@ -39,15 +35,15 @@
 //! ```
 
 pub mod config;
-pub mod doubao;
 pub mod error;
 pub mod event;
+pub mod funasr;
 pub mod provider;
 pub mod transcript;
 
 pub use config::AsrConfig;
-pub use doubao::DoubaoWsProvider;
 pub use error::AsrError;
 pub use event::AsrEvent;
+pub use funasr::FunAsrProvider;
 pub use provider::AsrProvider;
 pub use transcript::TranscriptAggregator;
