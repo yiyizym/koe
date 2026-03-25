@@ -32,16 +32,79 @@ Koe takes a different approach:
 
 ### ASR Providers
 
-Koe supports two ASR backends, selectable via `~/.koe/config.yaml`:
+Koe supports three ASR backends, selectable via `~/.koe/config.yaml`:
 
 | Provider | Mode | Requires | Best for |
 |---|---|---|---|
-| **sherpa-onnx** (default) | Local, offline | Model files (~230 MB) | Portable, no dependencies |
-| **FunASR** | Local server, 2pass | Docker | Higher accuracy (streaming + offline correction) |
+| **sherpa-onnx** (default) | Streaming, local | Model files (~230 MB) | Portable, no extra dependencies |
+| **SenseVoice** | Offline, local | Model files (~230 MB) | Higher accuracy, multi-language (zh/en/ja/ko/yue) |
+| **FunASR** | Streaming, 2pass, local server | Docker | Best accuracy (streaming + offline correction) |
 
-Both run entirely locally — no cloud API keys needed for ASR.
+All providers run entirely locally — no cloud API keys needed for ASR.
 
 - **LLM**: supports **OpenAI-compatible APIs only** (optional, for text correction)
+
+#### Quick Setup by Provider
+
+**Option A: sherpa-onnx** (easiest, no extra dependencies)
+
+```bash
+# 1. Download the bilingual streaming model
+mkdir -p ~/.koe/models
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2 | tar xj -C ~/.koe/models/
+
+# 2. Set config (~/.koe/config.yaml)
+```
+```yaml
+asr:
+  provider: "sherpa"
+  model_dir: "models/sherpa-onnx-streaming-paraformer-bilingual-zh-en"
+```
+```bash
+# 3. Press the hotkey and speak — done!
+```
+
+**Option B: SenseVoice** (higher accuracy, but more latency after speaking)
+
+```bash
+# 1. Download the SenseVoice model
+mkdir -p ~/.koe/models
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2 | tar xj -C ~/.koe/models/
+
+# 2. Set config (~/.koe/config.yaml)
+```
+```yaml
+asr:
+  provider: "sensevoice"
+  model_dir: "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+```
+```bash
+# 3. Press the hotkey and speak — done!
+```
+
+**Option C: FunASR** (best accuracy, requires Docker)
+
+```bash
+# 1. Start the FunASR server (first run downloads models ~2 GB)
+make funasr
+# Wait until you see "listen on port:10095"
+
+# 2. Set config (~/.koe/config.yaml)
+```
+```yaml
+asr:
+  provider: "funasr"
+  url: "ws://localhost:10096"
+  mode: "2pass"
+```
+```bash
+# 3. Press the hotkey and speak — done!
+# Note: the FunASR server must be running whenever you use this provider.
+```
+
+#### Switching Between Providers
+
+Just change `provider` in `~/.koe/config.yaml`. Changes take effect on the next hotkey press — no restart needed.
 
 ## Installation
 
