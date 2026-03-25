@@ -17,7 +17,7 @@ use crate::ffi::{
 use crate::llm::openai_compatible::OpenAiCompatibleProvider;
 use crate::llm::{CorrectionRequest, LlmProvider};
 use crate::session::{Session, SessionState};
-use koe_asr::{AnyProvider, AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, SherpaProvider, TranscriptAggregator};
+use koe_asr::{AnyProvider, AsrConfig, AsrEvent, AsrProvider, FunAsrProvider, SenseVoiceProvider, SherpaProvider, TranscriptAggregator};
 
 use std::ffi::c_char;
 use std::sync::{Arc, Mutex};
@@ -361,6 +361,10 @@ async fn run_session(
             log::info!("[{session_id}] using FunASR provider");
             AnyProvider::FunAsr(FunAsrProvider::new())
         }
+        "sensevoice" => {
+            log::info!("[{session_id}] using SenseVoice provider");
+            AnyProvider::SenseVoice(SenseVoiceProvider::new())
+        }
         _ => {
             log::info!("[{session_id}] using sherpa-onnx provider");
             AnyProvider::Sherpa(SherpaProvider::new())
@@ -405,6 +409,10 @@ async fn run_session(
                     }
                     None => {
                         // Channel closed: session ended
+                        // Pad with 300ms of silence so the recognizer can finish
+                        // processing the last audio chunk without truncation.
+                        let silence = vec![0u8; 16000 * 2 * 300 / 1000]; // 300ms, 16kHz, 16-bit
+                        let _ = asr.send_audio(&silence).await;
                         log::info!("[{session_id}] audio stream ended, sending finish");
                         let _ = asr.finish_input().await;
                         break;
@@ -490,6 +498,10 @@ async fn run_session(
     }
 
     // --- LLM Correction ---
+    log::info!(
+        "[{session_id}] LLM config: enabled={}, base_url=\"{}\", api_key_len={}, model=\"{}\"",
+        llm_config.enabled, llm_config.base_url, llm_config.api_key.len(), llm_config.model,
+    );
     let llm_enabled = llm_config.enabled
         && !llm_config.base_url.is_empty()
         && !llm_config.api_key.is_empty();
@@ -536,7 +548,7 @@ async fn run_session(
 
         match llm.correct(&request).await {
             Ok(corrected) => {
-                log::info!("[{session_id}] LLM corrected: {} chars", corrected.len());
+                log::info!("[{session_id}] LLM corrected: \"{}\"", corrected);
                 corrected
             }
             Err(e) => {

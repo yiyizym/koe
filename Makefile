@@ -21,4 +21,15 @@ funasr:
 	docker run -p 10096:10095 -it --privileged=true \
 		-v ~/funasr-models:/workspace/models \
 		registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13 \
-		bash -c "cd /workspace/FunASR/runtime && bash run_server_2pass.sh --download-model-dir /workspace/models --certfile 0"
+		/workspace/FunASR/runtime/websocket/build/bin/funasr-wss-server-2pass \
+		--download-model-dir /workspace/models \
+		--model-dir damo/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx \
+		--online-model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online-onnx \
+		--vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx \
+		--punc-dir damo/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727-onnx \
+		--itn-dir thuduj12/fst_itn_zh \
+		--lm-dir damo/speech_ngram_lm_zh-cn-ai-wesp-fst \
+		--port 10095 \
+		--certfile "" \
+		--keyfile "" \
+		--hotword /workspace/FunASR/runtime/websocket/hotwords.txt

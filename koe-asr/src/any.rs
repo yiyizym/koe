@@ -3,12 +3,14 @@ use crate::error::Result;
 use crate::event::AsrEvent;
 use crate::funasr::FunAsrProvider;
 use crate::provider::AsrProvider;
+use crate::sensevoice::SenseVoiceProvider;
 use crate::sherpa::SherpaProvider;
 
 /// Provider-agnostic wrapper that delegates to the selected ASR backend.
 pub enum AnyProvider {
     Sherpa(SherpaProvider),
     FunAsr(FunAsrProvider),
+    SenseVoice(SenseVoiceProvider),
 }
 
 impl AsrProvider for AnyProvider {
@@ -16,6 +18,7 @@ impl AsrProvider for AnyProvider {
         match self {
             AnyProvider::Sherpa(p) => p.connect(config).await,
             AnyProvider::FunAsr(p) => p.connect(config).await,
+            AnyProvider::SenseVoice(p) => p.connect(config).await,
         }
     }
 
@@ -23,6 +26,7 @@ impl AsrProvider for AnyProvider {
         match self {
             AnyProvider::Sherpa(p) => p.send_audio(frame).await,
             AnyProvider::FunAsr(p) => p.send_audio(frame).await,
+            AnyProvider::SenseVoice(p) => p.send_audio(frame).await,
         }
     }
 
@@ -30,6 +34,7 @@ impl AsrProvider for AnyProvider {
         match self {
             AnyProvider::Sherpa(p) => p.finish_input().await,
             AnyProvider::FunAsr(p) => p.finish_input().await,
+            AnyProvider::SenseVoice(p) => p.finish_input().await,
         }
     }
 
@@ -37,6 +42,7 @@ impl AsrProvider for AnyProvider {
         match self {
             AnyProvider::Sherpa(p) => p.next_event().await,
             AnyProvider::FunAsr(p) => p.next_event().await,
+            AnyProvider::SenseVoice(p) => p.next_event().await,
         }
     }
 
@@ -44,6 +50,7 @@ impl AsrProvider for AnyProvider {
         match self {
             AnyProvider::Sherpa(p) => p.close().await,
             AnyProvider::FunAsr(p) => p.close().await,
+            AnyProvider::SenseVoice(p) => p.close().await,
         }
     }
 }

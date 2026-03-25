@@ -72,7 +72,34 @@ impl SessionMetrics {
 }
 
 pub fn init_logging() {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::sync::Mutex;
+
+    let log_path = crate::config::config_dir().join("koe.log");
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok()
+        .map(|f| Mutex::new(f));
+
     let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
+        .format(move |buf, record| {
+            let line = format!(
+                "[{} {}] {}\n",
+                buf.timestamp_seconds(),
+                record.level(),
+                record.args()
+            );
+            let _ = buf.write_all(line.as_bytes());
+            if let Some(ref file) = file {
+                if let Ok(mut f) = file.lock() {
+                    let _ = f.write_all(line.as_bytes());
+                }
+            }
+            Ok(())
+        })
         .try_init();
 }

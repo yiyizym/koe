@@ -10,6 +10,8 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: nz.owo.koe
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
 
 targets:
   Koe:
