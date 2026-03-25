@@ -15,6 +15,9 @@ pub struct Config {
     pub dictionary: DictionarySection,
     #[serde(default)]
     pub hotkey: HotkeySection,
+    /// Write logs to ~/.koe/koe.log (default: false)
+    #[serde(default)]
+    pub log_to_file: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -397,6 +400,9 @@ dictionary:
 hotkey:
   # 触发键：fn | left_option | right_option | left_command | right_command
   trigger_key: "fn"
+
+# Write logs to ~/.koe/koe.log (useful for debugging)
+log_to_file: false
 "#;
 
 const DEFAULT_DICTIONARY_TXT: &str = r#"# Koe User Dictionary

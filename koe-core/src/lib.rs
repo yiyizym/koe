@@ -44,26 +44,29 @@ static CORE: Mutex<Option<Core>> = Mutex::new(None);
 /// `config_path` is reserved for future use (currently loads from ~/.koe/config.yaml).
 #[no_mangle]
 pub extern "C" fn sp_core_create(config_path: *const c_char) -> i32 {
-    telemetry::init_logging();
-
     let _config_path = unsafe { cstr_to_str(config_path) };
-    log::info!("sp_core_create called");
 
     // Ensure ~/.koe/ exists with default config and dictionary
+    match config::ensure_defaults() {
+        Ok(_) => {}
+        Err(_) => {}
+    }
+
+    // Load config first to check log_to_file setting
+    let cfg = match config::load_config() {
+        Ok(c) => c,
+        Err(_) => Config::default(),
+    };
+
+    telemetry::init_logging(cfg.log_to_file);
+    log::info!("sp_core_create called");
+
+    // Re-log any issues from ensure_defaults / load_config
     match config::ensure_defaults() {
         Ok(true) => log::info!("created default config files in ~/.koe/"),
         Ok(false) => {}
         Err(e) => log::warn!("ensure_defaults failed: {e}"),
     }
-
-    // Load config
-    let cfg = match config::load_config() {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("failed to load config, using defaults: {e}");
-            Config::default()
-        }
-    };
 
     // Load dictionary
     let dict_path = config::resolve_dictionary_path(&cfg);

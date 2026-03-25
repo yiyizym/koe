@@ -71,18 +71,23 @@ impl SessionMetrics {
     }
 }
 
-pub fn init_logging() {
-    use std::fs::OpenOptions;
+pub fn init_logging(log_to_file: bool) {
     use std::io::Write;
-    use std::sync::Mutex;
 
-    let log_path = crate::config::config_dir().join("koe.log");
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .ok()
-        .map(|f| Mutex::new(f));
+    let file = if log_to_file {
+        use std::fs::OpenOptions;
+        use std::sync::Mutex;
+
+        let log_path = crate::config::config_dir().join("koe.log");
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok()
+            .map(|f| Mutex::new(f))
+    } else {
+        None
+    };
 
     let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
