@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod llm;
 pub mod prompt;
 pub mod session;
+pub mod spellfix;
 pub mod telemetry;
 
 use crate::config::Config;
@@ -239,6 +240,7 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
     let dictionary_max_candidates = cfg.llm.dictionary_max_candidates;
     let system_prompt = core.system_prompt.clone();
     let user_prompt_template = core.user_prompt_template.clone();
+    let spellfix_enabled = cfg.spellfix.enabled;
 
     // Spawn the session task
     core.runtime.spawn(async move {
@@ -254,6 +256,7 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
             dictionary_max_candidates,
             system_prompt,
             user_prompt_template,
+            spellfix_enabled,
         )
         .await;
     });
@@ -354,6 +357,7 @@ async fn run_session(
     dictionary_max_candidates: usize,
     system_prompt: String,
     user_prompt_template: String,
+    spellfix_enabled: bool,
 ) {
     let final_wait_timeout_ms = asr_config.final_wait_timeout_ms;
 
@@ -567,6 +571,22 @@ async fn run_session(
             log::info!("[{session_id}] LLM not configured, using raw ASR text");
         }
         asr_text
+    };
+
+    // --- Spell Correction ---
+    let final_text = if spellfix_enabled {
+        let fixer = spellfix::SpellFixer::new_with_user_dict(
+            spellfix::SpellFixConfig::default(),
+            &dictionary,
+        );
+        let (corrected, count) = fixer.correct_text(&final_text);
+        if count > 0 {
+            log::info!("[{session_id}] spellfix: {count} correction(s)");
+            log::debug!("[{session_id}] spellfix: \"{}\" -> \"{}\"", final_text, corrected);
+        }
+        corrected
+    } else {
+        final_text
     };
 
     // Store corrected text

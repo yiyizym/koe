@@ -15,6 +15,8 @@ pub struct Config {
     pub dictionary: DictionarySection,
     #[serde(default)]
     pub hotkey: HotkeySection,
+    #[serde(default)]
+    pub spellfix: SpellFixSection,
     /// Write logs to ~/.koe/koe.log (default: false)
     #[serde(default)]
     pub log_to_file: bool,
@@ -89,6 +91,13 @@ pub struct FeedbackSection {
 pub struct DictionarySection {
     #[serde(default = "default_dictionary_path")]
     pub path: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SpellFixSection {
+    /// Enable dictionary-based English spell correction (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -223,6 +232,11 @@ impl Default for FeedbackSection {
     }
 }
 impl Default for DictionarySection {
+    fn default() -> Self {
+        serde_yaml::from_str("{}").unwrap()
+    }
+}
+impl Default for SpellFixSection {
     fn default() -> Self {
         serde_yaml::from_str("{}").unwrap()
     }
@@ -400,6 +414,9 @@ dictionary:
 hotkey:
   # 触发键：fn | left_option | right_option | left_command | right_command
   trigger_key: "fn"
+
+spellfix:
+  enabled: true    # dictionary-based English spell correction
 
 # Write logs to ~/.koe/koe.log (useful for debugging)
 log_to_file: false
