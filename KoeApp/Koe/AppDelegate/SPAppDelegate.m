@@ -213,6 +213,11 @@
 }
 
 - (void)rustBridgeDidReceiveFinalText:(NSString *)text {
+    // Strip trailing Chinese period added by ASR engine
+    if ([text hasSuffix:@"\u3002"]) {
+        text = [text substringToIndex:text.length - 1];
+        NSLog(@"[Koe] Stripped trailing Chinese period");
+    }
     NSLog(@"[Koe] Final text received (%lu chars)", (unsigned long)text.length);
 
     // Record history
