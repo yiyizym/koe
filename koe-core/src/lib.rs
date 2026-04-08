@@ -240,7 +240,7 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
     let dictionary_max_candidates = cfg.llm.dictionary_max_candidates;
     let system_prompt = core.system_prompt.clone();
     let user_prompt_template = core.user_prompt_template.clone();
-    let spellfix_enabled = cfg.spellfix.enabled;
+    let spellfix_config = cfg.spellfix.clone();
 
     // Spawn the session task
     core.runtime.spawn(async move {
@@ -256,7 +256,7 @@ pub extern "C" fn sp_core_session_begin(context: SPSessionContext) -> i32 {
             dictionary_max_candidates,
             system_prompt,
             user_prompt_template,
-            spellfix_enabled,
+            spellfix_config,
         )
         .await;
     });
@@ -357,7 +357,7 @@ async fn run_session(
     dictionary_max_candidates: usize,
     system_prompt: String,
     user_prompt_template: String,
-    spellfix_enabled: bool,
+    spellfix_config: config::SpellFixSection,
 ) {
     let final_wait_timeout_ms = asr_config.final_wait_timeout_ms;
 
@@ -574,9 +574,13 @@ async fn run_session(
     };
 
     // --- Spell Correction ---
-    let final_text = if spellfix_enabled {
+    let final_text = if spellfix_config.enabled {
         let fixer = spellfix::SpellFixer::new_with_user_dict(
-            spellfix::SpellFixConfig::default(),
+            spellfix::SpellFixConfig {
+                hotword_max_distance_ratio: spellfix_config.hotword_max_distance_ratio,
+                hotword_max_distance_cap: spellfix_config.hotword_max_distance_cap,
+                ..Default::default()
+            },
             &dictionary,
         );
         let (corrected, count) = fixer.correct_text(&final_text);

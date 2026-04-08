@@ -11,6 +11,10 @@ pub struct SpellFixConfig {
     pub max_distance_ratio: f32,
     /// Absolute maximum edit distance cap (default: 3).
     pub max_distance_cap: usize,
+    /// Maximum edit distance ratio for hotword/dictionary matching (default: 0.4).
+    pub hotword_max_distance_ratio: f32,
+    /// Absolute maximum edit distance cap for hotword/dictionary matching (default: 5).
+    pub hotword_max_distance_cap: usize,
 }
 
 impl Default for SpellFixConfig {
@@ -19,6 +23,8 @@ impl Default for SpellFixConfig {
             min_word_length: 3,
             max_distance_ratio: 0.3,
             max_distance_cap: 3,
+            hotword_max_distance_ratio: 0.4,
+            hotword_max_distance_cap: 5,
         }
     }
 }
@@ -27,6 +33,9 @@ impl Default for SpellFixConfig {
 pub struct SpellFixer {
     word_set: HashSet<String>,
     word_list: Vec<String>,
+    /// Hotword entries from user dictionary: (lowercase, original_casing).
+    /// These are matched with more lenient distance and preserve dictionary casing.
+    hotwords: Vec<(String, String)>,
     config: SpellFixConfig,
 }
 
@@ -44,11 +53,13 @@ impl SpellFixer {
         Self {
             word_set,
             word_list: words,
+            hotwords: Vec::new(),
             config,
         }
     }
 
-    /// Create a new SpellFixer that also treats user dictionary entries as known-good words.
+    /// Create a new SpellFixer that also treats user dictionary entries as known-good words
+    /// and uses them as priority hotword correction targets with original casing preserved.
     pub fn new_with_user_dict(config: SpellFixConfig, user_dict: &[String]) -> Self {
         let mut words: Vec<String> = WORDLIST
             .lines()
@@ -57,11 +68,15 @@ impl SpellFixer {
             .map(|l| l.to_string())
             .collect();
 
-        // Add user dictionary entries (lowercased) to the known-good set
+        let mut hotwords: Vec<(String, String)> = Vec::new();
+
+        // Add user dictionary entries to the known-good set and hotword list
         for entry in user_dict {
-            let lower = entry.trim().to_lowercase();
+            let trimmed = entry.trim();
+            let lower = trimmed.to_lowercase();
             if !lower.is_empty() && lower.chars().all(|c| c.is_ascii_alphabetic()) {
-                words.push(lower);
+                words.push(lower.clone());
+                hotwords.push((lower, trimmed.to_string()));
             }
         }
 
@@ -69,12 +84,18 @@ impl SpellFixer {
         Self {
             word_set,
             word_list: words,
+            hotwords,
             config,
         }
     }
 
     /// Correct English words in mixed Chinese-English text.
     /// Returns the corrected string and the number of corrections made.
+    ///
+    /// For each unknown word, hotword/dictionary entries are tried first with
+    /// more lenient distance thresholds. If a hotword matches, its original
+    /// casing from the dictionary is used (e.g., "Kubernetes", "PostgreSQL").
+    /// Otherwise, falls back to general word list matching.
     pub fn correct_text(&self, text: &str) -> (String, usize) {
         let tokens = tokenize(text);
         let mut result = String::with_capacity(text.len());
@@ -95,7 +116,12 @@ impl SpellFixer {
                         continue;
                     }
 
-                    if let Some(corrected) = self.find_best_match(&lower) {
+                    // Try hotword/dictionary match first (lenient, preserves dictionary casing)
+                    if let Some(hotword) = self.find_hotword_match(&lower) {
+                        log::debug!("spellfix(hotword): \"{}\" -> \"{}\"", word, hotword);
+                        result.push_str(&hotword);
+                        corrections += 1;
+                    } else if let Some(corrected) = self.find_best_match(&lower) {
                         let cased = apply_case_pattern(word, &corrected);
                         log::debug!("spellfix: \"{}\" -> \"{}\"", word, cased);
                         result.push_str(&cased);
@@ -108,6 +134,58 @@ impl SpellFixer {
         }
 
         (result, corrections)
+    }
+
+    /// Find the best hotword/dictionary match for a misspelled lowercase word.
+    /// Uses more lenient distance thresholds than general matching.
+    /// Returns the original-cased form from the dictionary (e.g., "Kubernetes").
+    fn find_hotword_match(&self, word: &str) -> Option<String> {
+        if self.hotwords.is_empty() {
+            return None;
+        }
+
+        let max_dist = self.hotword_max_distance_for(word.len());
+        let first_char = word.as_bytes()[0];
+
+        let mut best: Option<&str> = None;
+        let mut best_dist = max_dist + 1;
+        let mut best_len = usize::MAX;
+
+        for (lower, _original) in &self.hotwords {
+            if lower.as_bytes()[0] != first_char {
+                continue;
+            }
+            let len_diff = word.len().abs_diff(lower.len());
+            if len_diff > max_dist {
+                continue;
+            }
+
+            let dist = levenshtein(word, lower, max_dist);
+            if dist < best_dist || (dist == best_dist && lower.len() < best_len) {
+                best_dist = dist;
+                best_len = lower.len();
+                best = Some(lower.as_str());
+            }
+        }
+
+        if best_dist > max_dist {
+            return None;
+        }
+
+        // Return the original-cased form for the best match
+        best.and_then(|matched| {
+            self.hotwords
+                .iter()
+                .find(|(l, _)| l == matched)
+                .map(|(_, original)| original.clone())
+        })
+    }
+
+    /// Compute the maximum allowed edit distance for hotword matching.
+    fn hotword_max_distance_for(&self, word_len: usize) -> usize {
+        let by_ratio = (word_len as f32 * self.config.hotword_max_distance_ratio) as usize;
+        let at_least_one = by_ratio.max(1);
+        at_least_one.min(self.config.hotword_max_distance_cap)
     }
 
     /// Find the best dictionary match for a misspelled lowercase word.
@@ -369,5 +447,60 @@ mod tests {
         let (result, count) = fixer.correct_text("run kubectl on nginx");
         assert_eq!(result, "run kubectl on nginx");
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_hotword_match_preserves_dictionary_casing() {
+        let user_dict = vec!["Kubernetes".to_string(), "PostgreSQL".to_string()];
+        let fixer = SpellFixer::new_with_user_dict(SpellFixConfig::default(), &user_dict);
+        // ASR garbles "Kubernetes" -> "kubernatis" (edit distance 2)
+        let (result, count) = fixer.correct_text("deploy to kubernatis");
+        assert_eq!(result, "deploy to Kubernetes");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_hotword_match_lenient_distance() {
+        let user_dict = vec!["Kubernetes".to_string()];
+        let config = SpellFixConfig {
+            hotword_max_distance_ratio: 0.4,
+            hotword_max_distance_cap: 5,
+            ..Default::default()
+        };
+        let fixer = SpellFixer::new_with_user_dict(config, &user_dict);
+        // "kubernetees" has distance 2 from "kubernetes" (extra 'e')
+        let (result, count) = fixer.correct_text("kubernetees cluster");
+        assert_eq!(result, "Kubernetes cluster");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_hotword_match_mixed_chinese_english() {
+        let user_dict = vec!["Kubernetes".to_string()];
+        let fixer = SpellFixer::new_with_user_dict(SpellFixConfig::default(), &user_dict);
+        let (result, count) = fixer.correct_text("\u{90e8}\u{7f72}\u{5230}kubernatis\u{96c6}\u{7fa4}");
+        assert_eq!(result, "\u{90e8}\u{7f72}\u{5230}Kubernetes\u{96c6}\u{7fa4}");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_hotword_exact_match_no_correction() {
+        let user_dict = vec!["Kubernetes".to_string()];
+        let fixer = SpellFixer::new_with_user_dict(SpellFixConfig::default(), &user_dict);
+        // Exact match (lowercase) is in word_set, should be kept as-is
+        let (result, count) = fixer.correct_text("kubernetes is great");
+        assert_eq!(result, "kubernetes is great");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_hotword_priority_over_general_wordlist() {
+        // If a dictionary entry matches, it should be preferred over general words
+        let user_dict = vec!["Nginx".to_string()];
+        let fixer = SpellFixer::new_with_user_dict(SpellFixConfig::default(), &user_dict);
+        // "nginy" is close to "nginx" (distance 2)
+        let (result, count) = fixer.correct_text("configure nginy");
+        assert_eq!(result, "configure Nginx");
+        assert_eq!(count, 1);
     }
 }

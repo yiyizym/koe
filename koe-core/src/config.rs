@@ -98,6 +98,15 @@ pub struct SpellFixSection {
     /// Enable dictionary-based English spell correction (default: true)
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Max edit distance ratio for hotword/dictionary matching (default: 0.4).
+    /// Higher than the general ratio (0.3) to allow more lenient matching
+    /// for user-specified proper nouns and technical terms.
+    #[serde(default = "default_hotword_ratio")]
+    pub hotword_max_distance_ratio: f32,
+    /// Absolute max edit distance cap for hotword/dictionary matching (default: 5).
+    /// Higher than the general cap (3) to catch more ASR garbling on long terms.
+    #[serde(default = "default_hotword_cap")]
+    pub hotword_max_distance_cap: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -209,6 +218,12 @@ fn default_trigger_key() -> String {
 }
 fn default_user_prompt_path() -> String {
     "user_prompt.txt".into()
+}
+fn default_hotword_ratio() -> f32 {
+    0.4
+}
+fn default_hotword_cap() -> usize {
+    5
 }
 
 impl Default for Config {
@@ -417,6 +432,8 @@ hotkey:
 
 spellfix:
   enabled: true    # dictionary-based English spell correction
+  hotword_max_distance_ratio: 0.4  # lenient edit distance ratio for dictionary hotwords
+  hotword_max_distance_cap: 5      # absolute max edit distance for dictionary hotwords
 
 # Write logs to ~/.koe/koe.log (useful for debugging)
 log_to_file: false
